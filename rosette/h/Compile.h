@@ -241,6 +241,7 @@ class SymbolNode : public AttrNode {
    protected:
     Location loc;
     Ob* sym;
+    bool deferredLookup;
 
     SymbolNode(Ob*, bool);
 

@@ -664,6 +664,10 @@ Instr* CodeVec::dumpInstr(Instr* pc, char* buf, Code* code) {
         dest = CtxtReg((CtxtRegName)OP_f2_op1(insn));
         goto formatDest;
 
+    case opNOP:
+        sprintf(buf, "NOP (next lookup deferred)");
+        goto noDest;
+
     default:
         sprintf(buf, "illegal 0x%.4x", (int)insn.word);
         goto noDest;

@@ -699,6 +699,9 @@ void VirtualMachine::evaluate(pOb expr) {
 
 Ob* VirtualMachine::vmLiterals[16] = {0};
 
+
+// This routine is a quick and dirty global environment lookup.  I think there
+// may be a more efficient way to do this, but I haven't researched it yet.
 int idxGlobalEnv(pOb key) {
     int size=TAGVAL(GlobalEnv->keyVec->indexedSize());
     const char *keyStr = BASE(key)->asCstring();
@@ -707,15 +710,17 @@ int idxGlobalEnv(pOb key) {
         const char * val = BASE(GlobalEnv->keyVec->nth(i))->asCstring();
 
         if (strcmp(keyStr, val) == 0) {
-            if (VerboseFlag) fprintf(stderr, "  %s found in GlobalEnv!\n", keyStr);
             return i;
         }
     }
+//    if (VerboseFlag)
+        warning("  %s NOT found in GlobalEnv!\n", keyStr);
     return -1;
 }
 
 void VirtualMachine::execute() {
     Instr instr;
+    Instr previous;
     Location loc;
     pOb result = INVALID;
 
@@ -728,6 +733,7 @@ nextop:
     if (debugging_level)
         traceOpcode();
 
+    previous = instr;
     instr = FETCH;
     bytecodes[OP_f0_opcode(instr)]++;
 
@@ -1154,10 +1160,19 @@ nextop:
             ctxt->pc = code->relativize(pc.absolute);
             goto doNextThread;
         } else if (val == ABSENT) {
-            // Perhaps it's in the GlobalEnv
-            int idx = idxGlobalEnv(key);
-            if (idx>=0) {
-                val = GlobalEnv->entry(idx);
+
+            // If the following instruction is a NOP, this is a deferred
+            // lookup that was emitted on purpose by the compiler. In this
+            // case we need to also check the global environment for the symbol.
+            if (OP_f0_opcode(previous) == opNOP) {
+                if (VerboseFlag) warning("Deferred symbol lookup '%s'", BASE(key)->asCstring());
+                // Perhaps it's in the GlobalEnv
+                int idx = idxGlobalEnv(key);
+                if (idx>=0) {
+                    val = GlobalEnv->entry(idx);
+                }
+            } else {
+                warning("Absent but not deferred symbol lookup '%s'", BASE(key)->asCstring());
             }
 
             if (val == ABSENT) {
@@ -1197,11 +1212,21 @@ nextop:
             ctxt->pc = code->relativize(pc.absolute);
             goto doNextThread;
         } else if (val == ABSENT) {
-            // Perhaps it's in the GlobalEnv
-            int idx = idxGlobalEnv(key);
-            if (idx>=0) {
-                val = GlobalEnv->entry(idx);
+
+            // If the previous instruction was a NOP, this is a deferred
+            // lookup that was emitted on purpose by the compiler. In this
+            // case we need to also check the global environment for the symbol.
+            if (OP_f0_opcode(previous) == opNOP) {
+                if (VerboseFlag) warning("Deferred symbol lookup '%s'", BASE(key)->asCstring());
+                // Perhaps it's in the GlobalEnv
+                int idx = idxGlobalEnv(key);
+                if (idx>=0) {
+                    val = GlobalEnv->entry(idx);
+                }
+            } else {
+                warning("Absent but not deferred symbol lookup '%s'", BASE(key)->asCstring());
             }
+
             if (val == ABSENT) {
                 handleMissingBinding(key, CtxtReg((CtxtRegName)regno));
                 goto doNextThread;
@@ -1403,6 +1428,8 @@ nextop:
         ctxt->reg(OP_f2_op1(instr)) = vmLiterals[OP_f2_op0(instr)];
         goto nextop;
 
+    case opNOP:
+        goto nextop;
 
     default:
         warning("illegal instruction (0x%.4x)", (int)instr.word);

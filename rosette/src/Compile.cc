@@ -675,7 +675,7 @@ int ConstNode::primNumber() {
 
 
 SymbolNode::SymbolNode(pOb symbol, bool valueCtxt)
-    : AttrNode(sizeof(SymbolNode), valueCtxt), loc(LocLimbo), sym(symbol) {
+    : AttrNode(sizeof(SymbolNode), valueCtxt), loc(LocLimbo), sym(symbol), deferredLookup(false) {
     SymbolNode::updateCnt();
 }
 
@@ -717,10 +717,20 @@ void SymbolNode::initialize(pOb ctEnv, pOb freeEnv, Location dest,
          * want to mark it as a global reference.
          */
         if (GET_LEXVAR_LEVEL(loc) == 0) {
+            // We have to do this lookup here in all cases, because this lookup sets info
+            // required by primNumber() below.
             loc = GlobalVar(GET_LEXVAR_OFFSET(loc));
+
+            // If this symbol is not a primitive, defer the lookup until runtime.
+            // This is part of the effort to separate the compile and execute
+            // phases. The ultimate goal being to validate the Roscala VM by cross
+            // utilizing the compilers and VMs.
             if (primNumber() < 0) {
                 loc = LocLimbo;
                 if (VerboseFlag) fprintf(stderr, "  Force runtime symbol lookup of '%s'\n", BASE(sym)->asCstring());
+                // Note that we are deferring the lookup so we can later emit an indication that we
+                // are doing so.
+                deferredLookup = true;
             }
             return;
         }
@@ -743,6 +753,11 @@ void SymbolNode::emitDispatchCode(bool ctxtAvailable, bool, RtnCode rtn,
     }
 
     if (SELF->loc == LocLimbo) {
+        // If this is a deferred lookup, emit an indication of that.
+        if (deferredLookup) {
+            SELF->emitF0(opNOP, 0xffff);
+            deferredLookup = false;
+        }
         SELF->emitLookup(SELF->sym);
     } else {
         SELF->emitXfer(SELF->loc);
